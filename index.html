@@ -85,25 +85,73 @@
       btn.textContent = 'Abrir en Chrome / Navegador externo';
     }
 
-    function buildIntentUri() {
+    // Componentes específicos (package/activity) de los navegadores principales.
+    // Apuntar al COMPONENT exacto en lugar de solo al package fuerza a Android
+    // a lanzar esa activity concreta como app independiente, bypaseando el
+    // modo Custom Chrome Tab (que es la razón por la que Gmail "atrapa" la web).
+    var COMPONENTS = [
+      'com.android.chrome/com.google.android.apps.chrome.Main',          // Chrome
+      'com.brave.browser/com.google.android.apps.chrome.Main',           // Brave (fork de Chromium)
+      'org.mozilla.firefox/org.mozilla.gecko.BrowserApp',                // Firefox
+      'com.microsoft.emmx/com.google.android.apps.chrome.Main',          // Edge (fork de Chromium)
+      'com.opera.browser/com.opera.android.BrowserActivity',             // Opera
+      'com.sec.android.app.sbrowser/com.sec.android.app.sbrowser.SBrowserMainActivity', // Samsung
+    ];
+
+    var attempt    = 0;
+    var retryTimer = null;
+    var intentFired = false;
+
+    function buildIntentUri(component) {
       var loc    = window.location;
       var scheme = loc.protocol.replace(':', '');
       var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
       var path   = loc.pathname + loc.search;
-      // Especificar el COMPONENT exacto (package/activity) en vez de solo package
-      // fuerza a Android a lanzar esa activity concreta, bypaseando el modo CCT.
-      // com.google.android.apps.chrome.Main es la activity principal de Chrome
-      // (la que se abre cuando tocas el icono de Chrome en el launcher).
       return (
         'intent://' + host + path +
         '#Intent;scheme=' + scheme +
         ';action=android.intent.action.VIEW' +
         ';category=android.intent.category.BROWSABLE' +
-        ';component=com.android.chrome/com.google.android.apps.chrome.Main' +
+        ';component=' + component +
         ';launchFlags=0x14000000' + // NEW_TASK | RESET_TASK_IF_NEEDED
-        ';S.browser_fallback_url=' + encodeURIComponent(loc.href) +
         ';end'
       );
+    }
+
+    // Detectar si el intent funcionó: la página queda oculta cuando se cambia de app
+    var hiddenAt = null;
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && intentFired) {
+        hiddenAt = Date.now();
+        clearTimeout(retryTimer);  // alguien cogió el intent, parar cadena
+      } else if (!document.hidden && intentFired) {
+        var elapsed = hiddenAt ? (Date.now() - hiddenAt) : 0;
+        hiddenAt = null;
+        if (elapsed >= 800) {
+          // El usuario volvió tras abrir otra app: éxito
+          intentFired = false;
+          resetButton();
+        }
+      }
+    });
+
+    function tryNextComponent() {
+      if (attempt >= COMPONENTS.length) {
+        // Ningún navegador soportado instalado: usar sharesheet como último recurso
+        intentFired = false;
+        resetButton();
+        if (navigator.share) {
+          navigator.share({
+            title: document.title,
+            url:   window.location.href
+          }).catch(function () {});
+        }
+        return;
+      }
+      intentFired = true;
+      window.location.href = buildIntentUri(COMPONENTS[attempt]);
+      attempt++;
+      retryTimer = setTimeout(tryNextComponent, 500);
     }
 
     function openInExternalBrowser() {
@@ -113,22 +161,11 @@
       }
       var btn = document.getElementById('open-btn');
       btn.disabled = true;
-      btn.textContent = 'Abriendo Chrome…';
-
-      // Forzar Chrome como app independiente apuntando a su Main activity
-      window.location.href = buildIntentUri();
-
-      // Si en 1.5s seguimos visibles, el intent fue bloqueado → sharesheet
-      setTimeout(function () {
-        btn.disabled = false;
-        btn.textContent = 'Abrir en Chrome / Navegador externo';
-        if (!document.hidden && navigator.share) {
-          navigator.share({
-            title: document.title,
-            url:   window.location.href
-          }).catch(function () {});
-        }
-      }, 1500);
+      btn.textContent = 'Abriendo…';
+      attempt = 0;
+      intentFired = false;
+      clearTimeout(retryTimer);
+      tryNextComponent();
     }
   </script>
 </body>
