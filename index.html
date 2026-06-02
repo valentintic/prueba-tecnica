@@ -109,16 +109,17 @@
       return 'normal';
     }
 
-    // NO incluimos Chrome aquí: cuando Gmail abre la página en un Custom Chrome
-    // Tab, el host del CCT ES Chrome, y cualquier intent que resuelva a Chrome
-    // se queda atrapado en el mismo CCT. Probamos solo navegadores alternativos.
+    // Orden de intentos:
+    //   1. null  → navegador por defecto del usuario (Chrome, Brave, Firefox…)
+    //   2. paquetes específicos como fallback si el por defecto falla
     var PACKAGES = [
+      null,
+      'com.android.chrome',               // Chrome
       'com.brave.browser',                // Brave
       'org.mozilla.firefox',              // Firefox
       'com.microsoft.emmx',               // Edge
       'com.opera.browser',                // Opera
       'com.sec.android.app.sbrowser',     // Samsung Internet
-      'com.duckduckgo.mobile.android',    // DuckDuckGo
     ];
 
     var attempt    = 0;
@@ -158,12 +159,11 @@
       var scheme = loc.protocol.replace(':', '');
       var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
       var path   = loc.pathname + loc.search;
+      // Intent minimalista: sin launchFlags explícitas Android decide mejor
+      // cuándo crear una tarea nueva y no se queda atrapado en el CCT.
       return (
         'intent://' + host + path +
         '#Intent;scheme=' + scheme +
-        ';action=android.intent.action.VIEW' +
-        ';category=android.intent.category.BROWSABLE' +
-        ';launchFlags=0x10008000' +
         (pkg ? ';package=' + pkg : '') +
         ';S.browser_fallback_url=' + encodeURIComponent(loc.href) +
         ';end'
