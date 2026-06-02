@@ -90,45 +90,45 @@
       var scheme = loc.protocol.replace(':', '');
       var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
       var path   = loc.pathname + loc.search;
+      // Especificar el COMPONENT exacto (package/activity) en vez de solo package
+      // fuerza a Android a lanzar esa activity concreta, bypaseando el modo CCT.
+      // com.google.android.apps.chrome.Main es la activity principal de Chrome
+      // (la que se abre cuando tocas el icono de Chrome en el launcher).
       return (
         'intent://' + host + path +
         '#Intent;scheme=' + scheme +
+        ';action=android.intent.action.VIEW' +
+        ';category=android.intent.category.BROWSABLE' +
+        ';component=com.android.chrome/com.google.android.apps.chrome.Main' +
+        ';launchFlags=0x14000000' + // NEW_TASK | RESET_TASK_IF_NEEDED
         ';S.browser_fallback_url=' + encodeURIComponent(loc.href) +
         ';end'
       );
     }
 
-    // ÚNICA estrategia fiable contra el CCT de Gmail:
-    // Web Share API → abre el sharesheet nativo de Android.
-    // Es UI del sistema operativo, fuera del control de Chrome/Brave/CCT.
-    // El usuario elige el navegador y Android lo lanza como tarea independiente.
-    //
-    // IMPORTANTE: navigator.share() debe invocarse SINCRÓNICAMENTE desde el
-    // gesto del usuario (clic). Si se llama desde setTimeout o tras un await,
-    // el navegador descarta la llamada silenciosamente por seguridad.
     function openInExternalBrowser() {
       if (!isAndroid()) {
         window.open(window.location.href, '_blank');
         return;
       }
-
       var btn = document.getElementById('open-btn');
+      btn.disabled = true;
+      btn.textContent = 'Abriendo Chrome…';
 
-      if (navigator.share) {
-        navigator.share({
-          title: document.title,
-          url:   window.location.href
-        }).catch(function () {
-          // Usuario canceló o falló: probar el intent como plan B
-          window.location.href = buildIntentUri();
-        });
-      } else {
-        // Navegadores muy antiguos sin Web Share API
-        btn.disabled = true;
-        btn.textContent = 'Abriendo…';
-        window.location.href = buildIntentUri();
-        setTimeout(resetButton, 1500);
-      }
+      // Forzar Chrome como app independiente apuntando a su Main activity
+      window.location.href = buildIntentUri();
+
+      // Si en 1.5s seguimos visibles, el intent fue bloqueado → sharesheet
+      setTimeout(function () {
+        btn.disabled = false;
+        btn.textContent = 'Abrir en Chrome / Navegador externo';
+        if (!document.hidden && navigator.share) {
+          navigator.share({
+            title: document.title,
+            url:   window.location.href
+          }).catch(function () {});
+        }
+      }, 1500);
     }
   </script>
 </body>
