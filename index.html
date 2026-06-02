@@ -132,15 +132,25 @@
       btn.textContent = 'Abrir en Chrome / Navegador externo';
     }
 
-    // Cuando el intent tiene éxito, Android lleva al usuario a otra app y la página
-    // queda en segundo plano (hidden). Lo usamos para cancelar los reintentos.
+    var hiddenAt = null;
+    var MIN_HIDDEN_MS = 800; // menos de esto es un parpadeo del sistema, no un cambio de app
+
     document.addEventListener('visibilitychange', function () {
       if (document.hidden && intentFired) {
+        hiddenAt = Date.now();
         clearTimeout(retryTimer);
       }
       if (!document.hidden && intentFired) {
-        intentFired = false;
-        resetButton();
+        var elapsed = hiddenAt ? (Date.now() - hiddenAt) : 0;
+        hiddenAt = null;
+        if (elapsed >= MIN_HIDDEN_MS) {
+          // Estuvo oculta suficiente tiempo: el intent funcionó, el usuario volvió
+          intentFired = false;
+          resetButton();
+        } else {
+          // Parpadeo breve del sistema: reanudar la cadena de reintentos
+          retryTimer = setTimeout(tryNextBrowser, 700);
+        }
       }
     });
 
