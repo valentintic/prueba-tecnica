@@ -77,25 +77,12 @@
 
   <script>
     var ua = navigator.userAgent || '';
-
     function isAndroid() { return /android/i.test(ua); }
 
-    // Orden de intentos:
-    //   1. null  → navegador por defecto del usuario (Chrome, Brave, Firefox…)
-    //   2. paquetes específicos como fallback si el por defecto falla
-    var PACKAGES = [
-      null,
-      'com.android.chrome',               // Chrome
-      'com.brave.browser',                // Brave
-      'org.mozilla.firefox',              // Firefox
-      'com.microsoft.emmx',               // Edge
-      'com.opera.browser',                // Opera
-      'com.sec.android.app.sbrowser',     // Samsung Internet
-    ];
-
-    var attempt    = 0;
-    var retryTimer = null;
-    var intentFired = false;
+    var intentFired  = false;
+    var fallbackTimer = null;
+    var hiddenAt     = null;
+    var MIN_HIDDEN_MS = 800;
 
     function resetButton() {
       var btn = document.getElementById('open-btn');
@@ -103,65 +90,51 @@
       btn.textContent = 'Abrir en Chrome / Navegador externo';
     }
 
-    var hiddenAt = null;
-    var MIN_HIDDEN_MS = 800; // menos de esto es un parpadeo del sistema, no un cambio de app
+    function openShareSheet() {
+      // El sharesheet de Android es UI del sistema operativo: cuando el usuario
+      // elige un navegador desde ahí, Android lo lanza como tarea independiente.
+      // Es el único mecanismo que escapa de forma fiable a un CCT cuyo host
+      // es el mismo navegador al que querríamos saltar (caso Chrome/Brave).
+      if (navigator.share) {
+        var btn = document.getElementById('open-btn');
+        btn.textContent = 'Elegir cómo abrir…';
+        navigator.share({
+          title: document.title,
+          url: window.location.href
+        }).finally(resetButton);
+      } else {
+        resetButton();
+      }
+    }
 
+    // Si el intent funciona, la página se oculta (otra app pasa al frente).
+    // Si pasados 1.2 s seguimos visibles, asumimos que el intent fue ignorado
+    // y abrimos el sharesheet como plan B garantizado.
     document.addEventListener('visibilitychange', function () {
       if (document.hidden && intentFired) {
         hiddenAt = Date.now();
-        clearTimeout(retryTimer);
-      }
-      if (!document.hidden && intentFired) {
+        clearTimeout(fallbackTimer);
+      } else if (!document.hidden && intentFired) {
         var elapsed = hiddenAt ? (Date.now() - hiddenAt) : 0;
         hiddenAt = null;
         if (elapsed >= MIN_HIDDEN_MS) {
-          // Estuvo oculta suficiente tiempo: el intent funcionó, el usuario volvió
           intentFired = false;
           resetButton();
-        } else {
-          // Parpadeo breve del sistema: reanudar la cadena de reintentos
-          retryTimer = setTimeout(tryNextBrowser, 700);
         }
       }
     });
 
-    function buildIntentUri(pkg) {
+    function buildIntentUri() {
       var loc    = window.location;
       var scheme = loc.protocol.replace(':', '');
       var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
       var path   = loc.pathname + loc.search;
-      // Intent minimalista: sin launchFlags explícitas Android decide mejor
-      // cuándo crear una tarea nueva y no se queda atrapado en el CCT.
       return (
         'intent://' + host + path +
         '#Intent;scheme=' + scheme +
-        (pkg ? ';package=' + pkg : '') +
         ';S.browser_fallback_url=' + encodeURIComponent(loc.href) +
         ';end'
       );
-    }
-
-    function tryNextBrowser() {
-      if (attempt >= PACKAGES.length) {
-        // Ningún navegador alternativo instalado (o todos bloqueados).
-        // Fallback: Web Share API → abre el sharesheet nativo de Android.
-        // Es UI del sistema operativo, Chrome/CCT no puede interceptarla.
-        if (navigator.share) {
-          var btn = document.getElementById('open-btn');
-          btn.textContent = 'Elegir cómo abrir…';
-          navigator.share({
-            title: document.title,
-            url: window.location.href
-          }).finally(function () { resetButton(); });
-        } else {
-          resetButton();
-        }
-        return;
-      }
-      intentFired = true;
-      window.location.href = buildIntentUri(PACKAGES[attempt]);
-      attempt++;
-      retryTimer = setTimeout(tryNextBrowser, 600);
     }
 
     function openInExternalBrowser() {
@@ -172,10 +145,19 @@
       var btn = document.getElementById('open-btn');
       btn.disabled = true;
       btn.textContent = 'Abriendo…';
-      attempt = 0;
-      intentFired = false;
-      clearTimeout(retryTimer);
-      tryNextBrowser();
+
+      intentFired = true;
+      window.location.href = buildIntentUri();
+
+      // Si en 1.2 s no hemos pasado a hidden, el intent no escapó:
+      // ir directamente al sharesheet del sistema.
+      clearTimeout(fallbackTimer);
+      fallbackTimer = setTimeout(function () {
+        if (!document.hidden) {
+          intentFired = false;
+          openShareSheet();
+        }
+      }, 1200);
     }
   </script>
 </body>
