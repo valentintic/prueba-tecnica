@@ -43,18 +43,6 @@
       line-height: 1.5;
     }
 
-    #env-banner {
-      display: inline-block;
-      font-size: 0.78rem;
-      font-weight: 600;
-      padding: 0.3rem 0.85rem;
-      border-radius: 99px;
-      margin-bottom: 1.5rem;
-    }
-    .env-inapp  { background: #fff3cd; color: #856404; }
-    .env-normal { background: #d1e7dd; color: #0a3622; }
-    .env-unknown{ background: #e2e8f0; color: #4a5568; }
-
     .btn-primary {
       display: block;
       width: 100%;
@@ -71,111 +59,69 @@
     .btn-primary:hover  { background: #3367d6; }
     .btn-primary:active { transform: scale(0.98); }
     .btn-primary:disabled { background: #a0aec0; cursor: default; }
-
-    .note {
-      font-size: 0.78rem;
-      color: #a0aec0;
-      margin-top: 1.5rem;
-    }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="icon">🌐</div>
-    <h1>Abrir en el navegador externo</h1>
+    <h1>Abrir fuera del correo</h1>
     <p class="subtitle">
       Este enlace fue abierto dentro de la aplicación de correo.<br>
-      Pulsa el botón para cargarlo en Chrome u otro navegador del dispositivo.
+      Pulsa el botón y elige el navegador donde quieres abrirlo.
     </p>
 
-    <div id="env-banner" class="env-unknown">Detectando entorno…</div>
-
     <button id="open-btn" class="btn-primary" onclick="openInExternalBrowser()">
-      Abrir en Chrome / Navegador externo
+      Abrir en otra app
     </button>
-
-    <p class="note" id="env-detail"></p>
   </div>
 
   <script>
-
     var ua = navigator.userAgent || '';
+    function isAndroid() { return /android/i.test(ua); }
 
-    function isAndroid()    { return /android/i.test(ua); }
-    function isIOS()        { return /iphone|ipad|ipod/i.test(ua); }
-
-    function detectBrowserEnv() {
-      if (/wv/.test(ua) && isAndroid()) return 'webview';
-      if (/FBAN|FBAV/i.test(ua))        return 'inapp';
-      if (/Instagram/i.test(ua))        return 'inapp';
-      if (/Line\//i.test(ua))           return 'inapp';
-      if (/Twitter/i.test(ua))          return 'inapp';
-  
-      if (isAndroid() || isIOS())       return 'maybe';
-      return 'normal';
-    }
-
-    function buildIntentUri(targetUrl) {
-      var loc   = window.location;
+    function buildIntentUri() {
+      var loc    = window.location;
       var scheme = loc.protocol.replace(':', '');
       var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
       var path   = loc.pathname + loc.search;
-
       return (
         'intent://' + host + path +
-        '#Intent' +
-        ';scheme=' + scheme +
-        ';package=com.android.chrome' +
-        ';S.browser_fallback_url=' + encodeURIComponent(targetUrl) +
+        '#Intent;scheme=' + scheme +
+        ';S.browser_fallback_url=' + encodeURIComponent(loc.href) +
         ';end'
       );
     }
 
+    // Estrategia: invocar el sharesheet nativo de Android vía Web Share API.
+    //
+    // Tras probar varios enfoques (intent:// a Chrome, component específico,
+    // launchFlags NEW_TASK/CLEAR_TASK, cadena de paquetes...) la conclusión es
+    // que Chrome bloquea cualquier intent que resuelva a sí mismo cuando actúa
+    // como host del Custom Chrome Tab de Gmail. Es una protección deliberada
+    // del navegador, no algo que se pueda sortear desde JavaScript.
+    //
+    // La Web Share API es la única vía estándar que invoca UI del sistema
+    // operativo (no del navegador), por lo que escapa siempre del CCT. El
+    // usuario elige el destino y Android lanza ese navegador como tarea
+    // independiente. El brief acepta explícitamente "otras opciones mejores".
+    //
+    // navigator.share() requiere user gesture activo: debe llamarse de forma
+    // síncrona desde el handler del clic, no desde setTimeout ni tras await.
     function openInExternalBrowser() {
-      var btn = document.getElementById('open-btn');
-      btn.disabled = true;
-      btn.textContent = 'Abriendo…';
-
-      var targetUrl = window.location.href;
-
-      if (isAndroid()) {
-        window.location.href = buildIntentUri(targetUrl);
-
-        setTimeout(function () {
-          btn.disabled = false;
-          btn.textContent = 'Abrir en Chrome / Navegador externo';
-        }, 1500);
-
+      if (!isAndroid()) {
+        window.open(window.location.href, '_blank');
+        return;
+      }
+      if (navigator.share) {
+        navigator.share({
+          title: document.title,
+          url:   window.location.href
+        }).catch(function () {});
       } else {
-        window.open(targetUrl, '_blank');
-        btn.disabled = false;
-        btn.textContent = 'Abrir en nueva pestaña';
+        // Fallback para navegadores sin Web Share API (muy raros hoy)
+        window.location.href = buildIntentUri();
       }
     }
-
-    (function initUI() {
-      var banner = document.getElementById('env-banner');
-      var detail = document.getElementById('env-detail');
-      var env    = detectBrowserEnv();
-
-      if (env === 'webview') {
-        banner.className     = 'env-inapp';
-        banner.textContent   = '⚠ Navegador integrado (WebView)';
-        detail.textContent   = 'UA: ' + ua.substring(0, 80) + '…';
-      } else if (env === 'inapp') {
-        banner.className     = 'env-inapp';
-        banner.textContent   = '⚠ Navegador integrado (app)';
-        detail.textContent   = 'UA: ' + ua.substring(0, 80) + '…';
-      } else if (env === 'maybe') {
-        banner.className     = 'env-inapp';
-        banner.textContent   = '⚠ Posiblemente en Gmail / app de correo';
-        detail.textContent   = 'La UA de Custom Chrome Tab es idéntica a Chrome; detección heurística.';
-      } else {
-        banner.className     = 'env-normal';
-        banner.textContent   = '✓ Navegador estándar';
-        detail.textContent   = 'Parece que ya estás en un navegador externo.';
-      }
-    })();
   </script>
 </body>
 </html>
