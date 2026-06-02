@@ -173,7 +173,18 @@
 
     function tryNextBrowser() {
       if (attempt >= PACKAGES.length) {
-        resetButton();
+        // Los intents no funcionaron (Chrome bloqueó la salida del CCT).
+        // Fallback: Web Share API → abre el sharesheet nativo de Android,
+        // que es UI del sistema operativo y Chrome no puede interceptarla.
+        // El usuario elige un navegador y se abre como actividad independiente.
+        if (navigator.share) {
+          var btn = document.getElementById('open-btn');
+          btn.textContent = 'Elegir navegador…';
+          navigator.share({ url: window.location.href })
+            .finally(function () { resetButton(); });
+        } else {
+          resetButton();
+        }
         return;
       }
       intentFired = true;
