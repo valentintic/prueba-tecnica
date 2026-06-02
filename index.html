@@ -124,6 +124,25 @@
 
     var attempt    = 0;
     var retryTimer = null;
+    var intentFired = false;
+
+    function resetButton() {
+      var btn = document.getElementById('open-btn');
+      btn.disabled = false;
+      btn.textContent = 'Abrir en Chrome / Navegador externo';
+    }
+
+    // Cuando el intent tiene éxito, Android lleva al usuario a otra app y la página
+    // queda en segundo plano (hidden). Lo usamos para cancelar los reintentos.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && intentFired) {
+        clearTimeout(retryTimer);
+      }
+      if (!document.hidden && intentFired) {
+        intentFired = false;
+        resetButton();
+      }
+    });
 
     function buildIntentUri(pkg) {
       var loc    = window.location;
@@ -141,11 +160,10 @@
 
     function tryNextBrowser() {
       if (attempt >= PACKAGES.length) {
-        var btn = document.getElementById('open-btn');
-        btn.disabled = false;
-        btn.textContent = 'Abrir en Chrome / Navegador externo';
+        resetButton();
         return;
       }
+      intentFired = true;
       window.location.href = buildIntentUri(PACKAGES[attempt]);
       attempt++;
       retryTimer = setTimeout(tryNextBrowser, attempt === 1 ? 1200 : 700);
@@ -160,6 +178,7 @@
       btn.disabled = true;
       btn.textContent = 'Abriendo…';
       attempt = 0;
+      intentFired = false;
       clearTimeout(retryTimer);
       tryNextBrowser();
     }
