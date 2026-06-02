@@ -43,18 +43,6 @@
       line-height: 1.5;
     }
 
-    #env-banner {
-      display: inline-block;
-      font-size: 0.78rem;
-      font-weight: 600;
-      padding: 0.3rem 0.85rem;
-      border-radius: 99px;
-      margin-bottom: 1.5rem;
-    }
-    .env-inapp  { background: #fff3cd; color: #856404; }
-    .env-normal { background: #d1e7dd; color: #0a3622; }
-    .env-unknown{ background: #e2e8f0; color: #4a5568; }
-
     .btn-primary {
       display: block;
       width: 100%;
@@ -71,12 +59,6 @@
     .btn-primary:hover  { background: #3367d6; }
     .btn-primary:active { transform: scale(0.98); }
     .btn-primary:disabled { background: #a0aec0; cursor: default; }
-
-    .note {
-      font-size: 0.78rem;
-      color: #a0aec0;
-      margin-top: 1.5rem;
-    }
   </style>
 </head>
 <body>
@@ -88,26 +70,15 @@
       Pulsa el botón para cargarlo en Chrome u otro navegador del dispositivo.
     </p>
 
-    <div id="env-banner" class="env-unknown">Detectando entorno…</div>
-
     <button id="open-btn" class="btn-primary" onclick="openInExternalBrowser()">
       Abrir en Chrome / Navegador externo
     </button>
-
-    <p class="note" id="env-detail"></p>
   </div>
 
   <script>
     var ua = navigator.userAgent || '';
 
     function isAndroid() { return /android/i.test(ua); }
-
-    function detectBrowserEnv() {
-      if (/wv/.test(ua) && isAndroid())                    return 'inapp';
-      if (/FBAN|FBAV|Instagram|Line\/|Twitter/i.test(ua)) return 'inapp';
-      if (isAndroid())                                     return 'maybe';
-      return 'normal';
-    }
 
     // Orden de intentos:
     //   1. null  → navegador por defecto del usuario (Chrome, Brave, Firefox…)
@@ -206,26 +177,6 @@
       clearTimeout(retryTimer);
       tryNextBrowser();
     }
-
-    (function initUI() {
-      var banner = document.getElementById('env-banner');
-      var detail = document.getElementById('env-detail');
-      var env    = detectBrowserEnv();
-
-      if (env === 'inapp') {
-        banner.className   = 'env-inapp';
-        banner.textContent = '⚠ Navegador integrado';
-        detail.textContent = 'UA: ' + ua.substring(0, 100);
-      } else if (env === 'maybe') {
-        banner.className   = 'env-inapp';
-        banner.textContent = '⚠ Posiblemente en Gmail / app de correo';
-        detail.textContent = 'La UA de Custom Chrome Tab es idéntica a Chrome; detección heurística.';
-      } else {
-        banner.className   = 'env-normal';
-        banner.textContent = '✓ Navegador estándar';
-        detail.textContent = 'Parece que ya estás en un navegador externo.';
-      }
-    })();
   </script>
 </body>
 </html>
