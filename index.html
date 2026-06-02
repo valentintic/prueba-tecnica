@@ -109,17 +109,16 @@
       return 'normal';
     }
 
-    // El primer intento no lleva package: Android resuelve con el navegador por
-    // defecto del usuario (funciona para Chrome, Brave, Firefox, Edge, Opera...).
-    // Los siguientes son fallbacks por si no hay navegador por defecto configurado.
+    // NO incluimos Chrome aquí: cuando Gmail abre la página en un Custom Chrome
+    // Tab, el host del CCT ES Chrome, y cualquier intent que resuelva a Chrome
+    // se queda atrapado en el mismo CCT. Probamos solo navegadores alternativos.
     var PACKAGES = [
-      null,
-      'com.android.chrome',
-      'com.brave.browser',
-      'org.mozilla.firefox',
-      'com.microsoft.emmx',
-      'com.opera.browser',
-      'com.sec.android.app.sbrowser',
+      'com.brave.browser',                // Brave
+      'org.mozilla.firefox',              // Firefox
+      'com.microsoft.emmx',               // Edge
+      'com.opera.browser',                // Opera
+      'com.sec.android.app.sbrowser',     // Samsung Internet
+      'com.duckduckgo.mobile.android',    // DuckDuckGo
     ];
 
     var attempt    = 0;
@@ -173,15 +172,16 @@
 
     function tryNextBrowser() {
       if (attempt >= PACKAGES.length) {
-        // Los intents no funcionaron (Chrome bloqueó la salida del CCT).
-        // Fallback: Web Share API → abre el sharesheet nativo de Android,
-        // que es UI del sistema operativo y Chrome no puede interceptarla.
-        // El usuario elige un navegador y se abre como actividad independiente.
+        // Ningún navegador alternativo instalado (o todos bloqueados).
+        // Fallback: Web Share API → abre el sharesheet nativo de Android.
+        // Es UI del sistema operativo, Chrome/CCT no puede interceptarla.
         if (navigator.share) {
           var btn = document.getElementById('open-btn');
-          btn.textContent = 'Elegir navegador…';
-          navigator.share({ url: window.location.href })
-            .finally(function () { resetButton(); });
+          btn.textContent = 'Elegir cómo abrir…';
+          navigator.share({
+            title: document.title,
+            url: window.location.href
+          }).finally(function () { resetButton(); });
         } else {
           resetButton();
         }
@@ -190,7 +190,7 @@
       intentFired = true;
       window.location.href = buildIntentUri(PACKAGES[attempt]);
       attempt++;
-      retryTimer = setTimeout(tryNextBrowser, attempt === 1 ? 1200 : 700);
+      retryTimer = setTimeout(tryNextBrowser, 600);
     }
 
     function openInExternalBrowser() {
