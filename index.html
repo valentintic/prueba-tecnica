@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Abrir en navegador externo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+      max-width: 440px;
+      width: 100%;
+      padding: 2.5rem 2rem;
+      text-align: center;
+    }
+
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #1a202c;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: #718096;
+      margin-bottom: 2rem;
+      line-height: 1.5;
+    }
+
+    #env-banner {
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.3rem 0.85rem;
+      border-radius: 99px;
+      margin-bottom: 1.5rem;
+    }
+    .env-inapp  { background: #fff3cd; color: #856404; }
+    .env-normal { background: #d1e7dd; color: #0a3622; }
+    .env-unknown{ background: #e2e8f0; color: #4a5568; }
+
+    .btn-primary {
+      display: block;
+      width: 100%;
+      padding: 0.9rem 1.5rem;
+      background: #4285f4;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover  { background: #3367d6; }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-primary:disabled { background: #a0aec0; cursor: default; }
+
+    .note {
+      font-size: 0.78rem;
+      color: #a0aec0;
+      margin-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🌐</div>
+    <h1>Abrir en el navegador externo</h1>
+    <p class="subtitle">
+      Este enlace fue abierto dentro de la aplicación de correo.<br>
+      Pulsa el botón para cargarlo en Chrome u otro navegador del dispositivo.
+    </p>
+
+    <div id="env-banner" class="env-unknown">Detectando entorno…</div>
+
+    <button id="open-btn" class="btn-primary" onclick="openInExternalBrowser()">
+      Abrir en Chrome / Navegador externo
+    </button>
+
+    <p class="note" id="env-detail"></p>
+  </div>
+
+  <script>
+
+    var ua = navigator.userAgent || '';
+
+    function isAndroid()    { return /android/i.test(ua); }
+    function isIOS()        { return /iphone|ipad|ipod/i.test(ua); }
+
+    function detectBrowserEnv() {
+      if (/wv/.test(ua) && isAndroid()) return 'webview';
+      if (/FBAN|FBAV/i.test(ua))        return 'inapp';
+      if (/Instagram/i.test(ua))        return 'inapp';
+      if (/Line\//i.test(ua))           return 'inapp';
+      if (/Twitter/i.test(ua))          return 'inapp';
+  
+      if (isAndroid() || isIOS())       return 'maybe';
+      return 'normal';
+    }
+
+    function buildIntentUri(targetUrl) {
+      var loc   = window.location;
+      var scheme = loc.protocol.replace(':', '');
+      var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
+      var path   = loc.pathname + loc.search;
+
+      return (
+        'intent://' + host + path +
+        '#Intent' +
+        ';scheme=' + scheme +
+        ';package=com.android.chrome' +
+        ';S.browser_fallback_url=' + encodeURIComponent(targetUrl) +
+        ';end'
+      );
+    }
+
+    function openInExternalBrowser() {
+      var btn = document.getElementById('open-btn');
+      btn.disabled = true;
+      btn.textContent = 'Abriendo…';
+
+      var targetUrl = window.location.href;
+
+      if (isAndroid()) {
+        window.location.href = buildIntentUri(targetUrl);
+
+        setTimeout(function () {
+          btn.disabled = false;
+          btn.textContent = 'Abrir en Chrome / Navegador externo';
+        }, 1500);
+
+      } else {
+        window.open(targetUrl, '_blank');
+        btn.disabled = false;
+        btn.textContent = 'Abrir en nueva pestaña';
+      }
+    }
+
+    (function initUI() {
+      var banner = document.getElementById('env-banner');
+      var detail = document.getElementById('env-detail');
+      var env    = detectBrowserEnv();
+
+      if (env === 'webview') {
+        banner.className     = 'env-inapp';
+        banner.textContent   = '⚠ Navegador integrado (WebView)';
+        detail.textContent   = 'UA: ' + ua.substring(0, 80) + '…';
+      } else if (env === 'inapp') {
+        banner.className     = 'env-inapp';
+        banner.textContent   = '⚠ Navegador integrado (app)';
+        detail.textContent   = 'UA: ' + ua.substring(0, 80) + '…';
+      } else if (env === 'maybe') {
+        banner.className     = 'env-inapp';
+        banner.textContent   = '⚠ Posiblemente en Gmail / app de correo';
+        detail.textContent   = 'La UA de Custom Chrome Tab es idéntica a Chrome; detección heurística.';
+      } else {
+        banner.className     = 'env-normal';
+        banner.textContent   = '✓ Navegador estándar';
+        detail.textContent   = 'Parece que ya estás en un navegador externo.';
+      }
+    })();
+  </script>
+</body>
+</html>
