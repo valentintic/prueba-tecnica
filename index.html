@@ -79,50 +79,11 @@
     var ua = navigator.userAgent || '';
     function isAndroid() { return /android/i.test(ua); }
 
-    var intentFired  = false;
-    var fallbackTimer = null;
-    var hiddenAt     = null;
-    var MIN_HIDDEN_MS = 800;
-
     function resetButton() {
       var btn = document.getElementById('open-btn');
       btn.disabled = false;
       btn.textContent = 'Abrir en Chrome / Navegador externo';
     }
-
-    function openShareSheet() {
-      // El sharesheet de Android es UI del sistema operativo: cuando el usuario
-      // elige un navegador desde ahí, Android lo lanza como tarea independiente.
-      // Es el único mecanismo que escapa de forma fiable a un CCT cuyo host
-      // es el mismo navegador al que querríamos saltar (caso Chrome/Brave).
-      if (navigator.share) {
-        var btn = document.getElementById('open-btn');
-        btn.textContent = 'Elegir cómo abrir…';
-        navigator.share({
-          title: document.title,
-          url: window.location.href
-        }).finally(resetButton);
-      } else {
-        resetButton();
-      }
-    }
-
-    // Si el intent funciona, la página se oculta (otra app pasa al frente).
-    // Si pasados 1.2 s seguimos visibles, asumimos que el intent fue ignorado
-    // y abrimos el sharesheet como plan B garantizado.
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden && intentFired) {
-        hiddenAt = Date.now();
-        clearTimeout(fallbackTimer);
-      } else if (!document.hidden && intentFired) {
-        var elapsed = hiddenAt ? (Date.now() - hiddenAt) : 0;
-        hiddenAt = null;
-        if (elapsed >= MIN_HIDDEN_MS) {
-          intentFired = false;
-          resetButton();
-        }
-      }
-    });
 
     function buildIntentUri() {
       var loc    = window.location;
@@ -137,27 +98,37 @@
       );
     }
 
+    // ÚNICA estrategia fiable contra el CCT de Gmail:
+    // Web Share API → abre el sharesheet nativo de Android.
+    // Es UI del sistema operativo, fuera del control de Chrome/Brave/CCT.
+    // El usuario elige el navegador y Android lo lanza como tarea independiente.
+    //
+    // IMPORTANTE: navigator.share() debe invocarse SINCRÓNICAMENTE desde el
+    // gesto del usuario (clic). Si se llama desde setTimeout o tras un await,
+    // el navegador descarta la llamada silenciosamente por seguridad.
     function openInExternalBrowser() {
       if (!isAndroid()) {
         window.open(window.location.href, '_blank');
         return;
       }
+
       var btn = document.getElementById('open-btn');
-      btn.disabled = true;
-      btn.textContent = 'Abriendo…';
 
-      intentFired = true;
-      window.location.href = buildIntentUri();
-
-      // Si en 1.2 s no hemos pasado a hidden, el intent no escapó:
-      // ir directamente al sharesheet del sistema.
-      clearTimeout(fallbackTimer);
-      fallbackTimer = setTimeout(function () {
-        if (!document.hidden) {
-          intentFired = false;
-          openShareSheet();
-        }
-      }, 1200);
+      if (navigator.share) {
+        navigator.share({
+          title: document.title,
+          url:   window.location.href
+        }).catch(function () {
+          // Usuario canceló o falló: probar el intent como plan B
+          window.location.href = buildIntentUri();
+        });
+      } else {
+        // Navegadores muy antiguos sin Web Share API
+        btn.disabled = true;
+        btn.textContent = 'Abriendo…';
+        window.location.href = buildIntentUri();
+        setTimeout(resetButton, 1500);
+      }
     }
   </script>
 </body>
