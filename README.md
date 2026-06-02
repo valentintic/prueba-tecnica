@@ -1,92 +1,89 @@
-# Prueba Técnica — Escapar del navegador integrado de Gmail (Android)
+# Prueba Técnica — Abrir enlace en navegador externo desde Gmail (Android)
 
-## Contexto del problema
+## El problema
 
-Cuando un usuario abre un enlace desde la aplicación Gmail en Android, este se carga dentro de un **Custom Chrome Tab (CCT)**: un navegador integrado gestionado por la propia app de correo. Aunque visualmente se parece a Chrome, sigue "dentro" de Gmail, lo que puede limitar funcionalidades (cookies de terceros, APIs de dispositivo, etc.).
+El caso es el siguiente: un usuario recibe un correo en Gmail para Android, toca el enlace y la web se abre... pero dentro de Gmail. No en Chrome, no en el navegador del teléfono, sino en una especie de visor integrado que Gmail monta por su cuenta.
 
-El objetivo: al pulsar un botón en la web, **forzar que la página se abra en Chrome (o el navegador por defecto) como aplicación independiente**, escapando completamente del entorno de Gmail.
-
----
-
-## Enfoque adoptado: Android Intent URI
-
-### Por qué esta técnica
-
-Android expone un mecanismo de IPC llamado **Intent** para comunicar actividades entre apps. Un Intent URI tiene la forma:
-
-```
-intent://HOST/PATH#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=ENCODED_URL;end
-```
-
-Cuando el navegador navega a esta URL, en lugar de cargarla como una página web, el sistema operativo Android la interpreta como una orden para **lanzar otra aplicación** (en este caso Chrome) con la URL indicada. Esto hace que Chrome se abra como actividad independiente, completamente fuera del stack de Gmail.
-
-**¿Por qué funciona desde un Custom Chrome Tab?**  
-Los CCT están diseñados deliberadamente para pasar los `intent://` URIs al sistema Android — es un comportamiento documentado que permite la comunicación inter-app. A diferencia de un WebView estricto, el CCT no bloquea este tipo de navegación.
-
-### Flujo de la solución
-
-```
-Usuario abre enlace en Gmail
-        ↓
-  Página carga en CCT
-        ↓
-Usuario pulsa el botón
-        ↓
-JS navega a intent:// URI
-        ↓
-Android lanza Chrome como app independiente
-        ↓
-  Chrome carga la misma URL
-```
-
-Si tras 1,5 s el intent no funcionó (bloqueado o Chrome no instalado), se muestran instrucciones manuales ("Abrir en Chrome" desde el menú de tres puntos).
+Esto es un problema porque ese visor no es un navegador completo. Puede tener restricciones con cookies, con ciertas APIs del dispositivo, con el comportamiento de algunas funcionalidades web. El objetivo de esta prueba es conseguir que, al pulsar un botón en esa página, la web se cargue en el navegador real del teléfono, escapando del entorno de Gmail.
 
 ---
 
-## Alternativas evaluadas
+## Por dónde empecé a buscar
 
-| Opción | Descripción | Por qué se descartó |
-|---|---|---|
-| `window.open(url, '_blank')` | Abrir en nueva pestaña | En CCT solo abre otra CCT; no escapa del entorno de Gmail |
-| `window.location.href = 'googlechrome://...'` | Scheme propietario de Chrome | No es estándar; fue deprecado/bloqueado en versiones modernas |
-| `x-safari-https://...` (iOS) | Abrir en Safari | Bloqueado por WKWebView desde iOS 14; no aplica a Android |
-| Firebase Dynamic Links / Branch.io | Servicios de deep linking | Funcionan muy bien, pero añaden dependencia de terceros y configuración DNS (`/.well-known/assetlinks.json`). Overkill para una página estática. |
-| Android App Links | Asociar dominio a una app nativa | Requiere publicar una app; imposible sin ella |
-| Instrucciones manuales únicamente | Decirle al usuario qué hacer | Funciona siempre, pero es la peor UX |
+Lo primero que hice fue intentar entender qué tipo de "navegador" usa Gmail exactamente, porque eso condiciona completamente qué soluciones son viables.
+
+Resultó que hay dos casos distintos según la versión de Gmail:
+
+- **WebView clásico**: versiones antiguas de Gmail abren los enlaces en un WebView de Android, que es básicamente un componente de Chrome recortado y embebido en la app. Tiene bastantes restricciones.
+- **Custom Chrome Tab (CCT)**: versiones modernas de Gmail usan esto. Un Custom Chrome Tab es Chrome de verdad, pero lanzado en modo "adjunto" a la app que lo abre. Visualmente parece Chrome, tiene sus mismas capacidades, pero sigue corriendo dentro del contexto de Gmail.
+
+El segundo caso es el que aplica hoy en día, y es el más complicado de detectar, porque la User-Agent que reporta un CCT es exactamente la misma que la de Chrome normal. No hay ningún flag ni marca que lo diferencie programáticamente.
+
+---
+
+## Cosas que probé y no funcionaron (o no eran suficientes)
+
+**`window.open(url, '_blank')`**: Lo primero que se me ocurrió. Abre una nueva pestaña, pero dentro del mismo CCT. No escapa a ningún lado.
+
+**`window.location.href = 'googlechrome://...'`**: Chrome tiene (o tenía) un scheme propietario para abrirse a sí mismo como app independiente. Está deprecado y bloqueado en versiones modernas. Descartado.
+
+**Firebase Dynamic Links / Branch.io**: Servicios de deep linking que permiten abrir apps y navegar fuera de entornos integrados. Funcionan bien, pero requieren configuración de dominio (`/.well-known/assetlinks.json`), una cuenta en esos servicios y una app nativa. Demasiado para una página estática.
+
+**Android App Links**: Misma idea pero nativo de Android. Requiere publicar una app que registre el dominio. No aplicable.
+
+---
+
+## La solución que funciona: Android Intent URI
+
+Android tiene un sistema de comunicación entre apps llamado **Intent**. Básicamente es una forma de decirle al sistema operativo "quiero hacer esta acción, búscame una app que la gestione". Una de las formas de lanzar un Intent desde el navegador es usando URIs con el esquema `intent://`.
+
+La estructura es:
+```
+intent://HOST/PATH#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=URL;end
+```
+
+Cuando el navegador (en este caso el CCT de Gmail) intenta navegar a una URL con ese esquema, en vez de cargarla como una página web, Android la intercepta y la trata como una orden para lanzar otra aplicación. El resultado: Chrome se abre como actividad independiente, fuera del stack de Gmail.
+
+El motivo por el que esto funciona en un CCT y no en un WebView estricto es que los Custom Chrome Tabs están diseñados explícitamente para pasar los `intent://` al sistema. Es un comportamiento documentado y esperado.
+
+### Soporte de múltiples navegadores
+
+Una mejora importante sobre el enfoque inicial (que solo apuntaba a Chrome) es no especificar ningún paquete en el primer intento:
+
+```
+intent://HOST/PATH#Intent;scheme=https;S.browser_fallback_url=URL;end
+```
+
+Sin `package`, Android usa el navegador por defecto del usuario. Si tiene Brave como navegador principal, lo abrirá en Brave. Si tiene Firefox, en Firefox. Esto hace la solución agnóstica al navegador instalado.
+
+Si ese primer intento falla (el sistema no resuelve el intent), la página reintenta con paquetes específicos en orden: Chrome, Brave, Firefox, Edge, Opera, Samsung Internet.
 
 ---
 
 ## Limitaciones conocidas
 
-1. **Detección de CCT no es fiable**: La User-Agent de un Custom Chrome Tab es idéntica a la de Chrome en modo normal (no incluye el flag `wv` que sí aparece en WebViews clásicos). Por ello, la detección es heurística: si el dispositivo es Android y no se reconocen otros in-app browsers conocidos (Facebook, Instagram…), se asume que "podría estar en Gmail". No es un falso positivo grave, ya que el botón simplemente no hace nada perjudicial en un Chrome normal.
+- **La detección de CCT no es fiable**: Como la UA es idéntica a Chrome, no podemos saber con certeza si estamos en Gmail o en Chrome normal. La heurística es: si el dispositivo es Android y no detectamos otros in-app browsers conocidos, asumimos que podría ser Gmail. En la práctica esto no causa problemas, el botón simplemente no hace nada dañino en Chrome real.
 
-2. **No todas las versiones de Gmail se comportan igual**: Versiones antiguas de Gmail usaban un WebView clásico (no CCT). En ese caso el `intent://` también funciona, pero puede ser necesario incluir la categoría `BROWSABLE` explícitamente.
+- **iOS no tiene equivalente**: Apple no expone ningún API para forzar apertura en Safari desde un WKWebView. No hay intent system, no hay nada programático. La única opción sería instrucciones manuales al usuario.
 
-3. **iOS**: No existe ningún mecanismo programático estándar para forzar apertura en Safari desde un WKWebView. La única opción viable es mostrar instrucciones al usuario (`Compartir → Abrir en Safari`). Apple no expone un API equivalente al Intent de Android.
-
-4. **Desktop**: En escritorio el problema no existe; los enlaces de correo abren directamente en el navegador por defecto.
-
-5. **Chrome no instalado en Android**: Si el usuario no tiene Chrome (`com.android.chrome`), el intent falla y se activa `S.browser_fallback_url`, que redirige a la misma página. En ese momento se muestran las instrucciones manuales. Una mejora sería añadir un segundo intento con `package=com.google.android.browser` para el navegador AOSP genérico.
+- **Si ningún intent funciona**: el botón vuelve a su estado inicial. El usuario puede reintentar.
 
 ---
 
-## Estructura del proyecto
+## Estructura
 
 ```
-├── index.html   # Página principal con botón y lógica JS
-└── README.md    # Este archivo
+├── index.html
+└── README.md
 ```
 
-Sin dependencias externas. HTML/CSS/JS vanilla puro.
+Sin dependencias. HTML, CSS y JS vanilla.
 
 ---
 
-## Despliegue sugerido
+## Despliegue
 
-La forma más rápida para obtener una URL pública con un repositorio público es **GitHub Pages**:
+Repositorio público en GitHub + GitHub Pages (`Settings → Pages → branch main`).
 
-1. Crear un repositorio público en GitHub y subir los ficheros.
-2. En `Settings → Pages`, seleccionar rama `main` y carpeta `/ (root)`.
-3. GitHub publica la página en `https://<usuario>.github.io/<repo>/`.
+URL pública: `https://valentintic.github.io/prueba-tecnica/`
 
-Alternativas igualmente válidas: **Netlify** (drag & drop de la carpeta) o **Vercel** (conectando el repo de GitHub).

@@ -98,59 +98,70 @@
   </div>
 
   <script>
-
     var ua = navigator.userAgent || '';
 
-    function isAndroid()    { return /android/i.test(ua); }
-    function isIOS()        { return /iphone|ipad|ipod/i.test(ua); }
+    function isAndroid() { return /android/i.test(ua); }
 
     function detectBrowserEnv() {
-      if (/wv/.test(ua) && isAndroid()) return 'webview';
-      if (/FBAN|FBAV/i.test(ua))        return 'inapp';
-      if (/Instagram/i.test(ua))        return 'inapp';
-      if (/Line\//i.test(ua))           return 'inapp';
-      if (/Twitter/i.test(ua))          return 'inapp';
-  
-      if (isAndroid() || isIOS())       return 'maybe';
+      if (/wv/.test(ua) && isAndroid())                    return 'inapp';
+      if (/FBAN|FBAV|Instagram|Line\/|Twitter/i.test(ua)) return 'inapp';
+      if (isAndroid())                                     return 'maybe';
       return 'normal';
     }
 
-    function buildIntentUri(targetUrl) {
-      var loc   = window.location;
+    // El primer intento no lleva package: Android resuelve con el navegador por
+    // defecto del usuario (funciona para Chrome, Brave, Firefox, Edge, Opera...).
+    // Los siguientes son fallbacks por si no hay navegador por defecto configurado.
+    var PACKAGES = [
+      null,
+      'com.android.chrome',
+      'com.brave.browser',
+      'org.mozilla.firefox',
+      'com.microsoft.emmx',
+      'com.opera.browser',
+      'com.sec.android.app.sbrowser',
+    ];
+
+    var attempt    = 0;
+    var retryTimer = null;
+
+    function buildIntentUri(pkg) {
+      var loc    = window.location;
       var scheme = loc.protocol.replace(':', '');
       var host   = loc.hostname + (loc.port ? ':' + loc.port : '');
       var path   = loc.pathname + loc.search;
-
       return (
         'intent://' + host + path +
-        '#Intent' +
-        ';scheme=' + scheme +
-        ';package=com.android.chrome' +
-        ';S.browser_fallback_url=' + encodeURIComponent(targetUrl) +
+        '#Intent;scheme=' + scheme +
+        (pkg ? ';package=' + pkg : '') +
+        ';S.browser_fallback_url=' + encodeURIComponent(loc.href) +
         ';end'
       );
     }
 
+    function tryNextBrowser() {
+      if (attempt >= PACKAGES.length) {
+        var btn = document.getElementById('open-btn');
+        btn.disabled = false;
+        btn.textContent = 'Abrir en Chrome / Navegador externo';
+        return;
+      }
+      window.location.href = buildIntentUri(PACKAGES[attempt]);
+      attempt++;
+      retryTimer = setTimeout(tryNextBrowser, attempt === 1 ? 1200 : 700);
+    }
+
     function openInExternalBrowser() {
+      if (!isAndroid()) {
+        window.open(window.location.href, '_blank');
+        return;
+      }
       var btn = document.getElementById('open-btn');
       btn.disabled = true;
       btn.textContent = 'Abriendo…';
-
-      var targetUrl = window.location.href;
-
-      if (isAndroid()) {
-        window.location.href = buildIntentUri(targetUrl);
-
-        setTimeout(function () {
-          btn.disabled = false;
-          btn.textContent = 'Abrir en Chrome / Navegador externo';
-        }, 1500);
-
-      } else {
-        window.open(targetUrl, '_blank');
-        btn.disabled = false;
-        btn.textContent = 'Abrir en nueva pestaña';
-      }
+      attempt = 0;
+      clearTimeout(retryTimer);
+      tryNextBrowser();
     }
 
     (function initUI() {
@@ -158,22 +169,18 @@
       var detail = document.getElementById('env-detail');
       var env    = detectBrowserEnv();
 
-      if (env === 'webview') {
-        banner.className     = 'env-inapp';
-        banner.textContent   = '⚠ Navegador integrado (WebView)';
-        detail.textContent   = 'UA: ' + ua.substring(0, 80) + '…';
-      } else if (env === 'inapp') {
-        banner.className     = 'env-inapp';
-        banner.textContent   = '⚠ Navegador integrado (app)';
-        detail.textContent   = 'UA: ' + ua.substring(0, 80) + '…';
+      if (env === 'inapp') {
+        banner.className   = 'env-inapp';
+        banner.textContent = '⚠ Navegador integrado';
+        detail.textContent = 'UA: ' + ua.substring(0, 100);
       } else if (env === 'maybe') {
-        banner.className     = 'env-inapp';
-        banner.textContent   = '⚠ Posiblemente en Gmail / app de correo';
-        detail.textContent   = 'La UA de Custom Chrome Tab es idéntica a Chrome; detección heurística.';
+        banner.className   = 'env-inapp';
+        banner.textContent = '⚠ Posiblemente en Gmail / app de correo';
+        detail.textContent = 'La UA de Custom Chrome Tab es idéntica a Chrome; detección heurística.';
       } else {
-        banner.className     = 'env-normal';
-        banner.textContent   = '✓ Navegador estándar';
-        detail.textContent   = 'Parece que ya estás en un navegador externo.';
+        banner.className   = 'env-normal';
+        banner.textContent = '✓ Navegador estándar';
+        detail.textContent = 'Parece que ya estás en un navegador externo.';
       }
     })();
   </script>
